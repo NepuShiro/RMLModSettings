@@ -1,0 +1,34 @@
+{
+  "localeCode": "en-US",
+  "authors": [
+    "NepuShiro"
+  ],
+  "messages": {
+    "Settings.RML.Mods": "RML Mods",
+    "Settings.RML.Mods.LoadedMods": "Loaded Mods",
+    "Settings.RML.Mods.NoConfigs": "This Mod has No Configs",
+    "Settings.RML.Mods.NoMods": "There is no Mods Loaded",
+
+    "Settings.RML.Mods.Config.FlagsEnum": "PlaceHolder",
+    "Settings.RML.Mods.Config.FlagsEnum.Description": "Toggles the '{name}' enum flag.",
+
+    "Settings.RML.Mods.Error": "An Error has occurred",
+
+    "Settings.RML.Mods.Actions": "Actions",
+    "Settings.RML.Mods.SaveConfig": "Save all Configs",
+    "Settings.RML.Mods.SaveConfig.Description": "Save the currently selected Mod's Configs",
+    "Settings.RML.Mods.ResetConfig": "Reset all Configs",
+    "Settings.RML.Mods.ResetConfig.Description": "Reset all categories from the currently selected Mod's Configs",
+    "Settings.RML.Mods.ResetConfig.Confirm": "Are you sure?",
+
+    "Settings.RML.Mods.Metadata": "Metadata",
+    "Settings.RML.Mods.Guid": "Mod ID",
+    "Settings.RML.Mods.Author": "Author(s)",
+    "Settings.RML.Mods.Version": "Version",
+    "Settings.RML.Mods.ModPage": "Open Mod Page",
+
+    "Settings.NepuShiro.RMLModSettings": "RML Mod Settings",
+    "Settings.NepuShiro.RMLModSettings.Breadcrumb": "RML Mod Settings",
+    "Settings.NepuShiro.RMLModSettings.Description": "Lets you edit your RML mod settings in the settings tab of the dashboard."
+  }
+}
