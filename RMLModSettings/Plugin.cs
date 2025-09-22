@@ -1,4 +1,5 @@
-﻿using BepInEx;
+﻿using System.Reflection;
+using BepInEx;
 using BepInEx.Logging;
 using BepInEx.NET.Common;
 using BepInExResoniteShim;
@@ -9,6 +10,8 @@ using ResoniteModLoader;
 using BepisModSettings.DataFeeds;
 using BepisResoniteWrapper;
 using FrooxEngine.UIX;
+using FrooxEngine.Weaver;
+using HarmonyLib;
 using ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Variables;
 
 namespace RMLModSettings;
@@ -24,9 +27,17 @@ public class Plugin : BasePlugin
     {
         Log = base.Log;
 
+        HarmonyInstance.PatchAll();
+
         ResoniteHooks.OnEngineReady += () =>
         {
-            bool isRmlLoaded = AppDomain.CurrentDomain.GetAssemblies().Any(x => x.GetName().Name?.Contains("ResoniteModLoader") == true);
+            bool isRmlLoaded = false;
+            
+            try
+            {
+                isRmlLoaded = !string.IsNullOrEmpty(ModLoader.VERSION);
+            } catch { }
+            
             if (isRmlLoaded)
             {
                 BepisSettingsPage.CustomPluginsPages += RMLSettingsEnumerate;
@@ -39,6 +50,25 @@ public class Plugin : BasePlugin
         };
 
         Log.LogInfo($"Plugin {PluginMetadata.GUID} is loaded!");
+    }
+    
+    [HarmonyPatch(typeof(AssemblyPostProcessor))]
+    public class AssemblyPostProcessorPatch
+    {
+        private static MethodBase TargetMethod() => AccessTools.Method(typeof(AssemblyPostProcessor), "Process", new[] { typeof(string), typeof(string).MakeByRefType(), typeof(string) });
+        
+        private static Exception Finalizer(Exception __exception)
+        {
+            if (__exception is IOException ioEx &&
+                ioEx.Message.Contains("ResoniteModLoader.dll") &&
+                ioEx.Message.Contains("being used by another process"))
+            {
+                Log.LogError("Suppressed IOException: " + ioEx.Message);
+                return null;
+            }
+
+            return __exception;
+        }
     }
 
     public static async IAsyncEnumerable<DataFeedItem> RMLSettingsEnumerate(IReadOnlyList<string> path)

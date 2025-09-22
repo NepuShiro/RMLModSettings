@@ -1,7 +1,9 @@
 # RMLModSettings
 [![Thunderstore Badge](https://modding.resonite.net/assets/available-on-thunderstore.svg)](https://thunderstore.io/c/resonite/)
 
-A [Resonite](https://resonite.com/) mod that lets you edit your RML mod settings in the settings tab of the dashboard..
+A [Resonite](https://resonite.com/) mod that lets you edit your RML mod settings in the BepisModSettings tab of the dashboard.
+
+## This mod is an addon to BepisModSettings!
 
 ## Installation (Manual)
 1. Install [BepisLoader](https://github.com/ResoniteModding/BepisLoader) for Resonite.
