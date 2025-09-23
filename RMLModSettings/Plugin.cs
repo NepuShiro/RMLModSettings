@@ -21,7 +21,7 @@ namespace RMLModSettings;
 [BepInDependency(BepisModSettings.PluginMetadata.GUID, BepInDependency.DependencyFlags.HardDependency)]
 public class Plugin : BasePlugin
 {
-    internal static new ManualLogSource Log = null!;
+    internal new static ManualLogSource Log = null!;
 
     public override void Load()
     {
@@ -32,31 +32,34 @@ public class Plugin : BasePlugin
         ResoniteHooks.OnEngineReady += () =>
         {
             bool isRmlLoaded = false;
-            
+
             try
             {
                 isRmlLoaded = !string.IsNullOrEmpty(ModLoader.VERSION);
-            } catch { }
-            
+            }
+            catch { }
+
             if (isRmlLoaded)
             {
                 BepisSettingsPage.CustomPluginsPages += RMLSettingsEnumerate;
                 BepisPluginPage.CustomPluginConfigsPages += RMLSettingsConfigsEnumerate;
+
+                Log.LogInfo($"Plugin {PluginMetadata.GUID} is fully loaded!");
             }
             else
             {
-                Log.LogFatal("ResoniteModLoader is not loaded! You cannot use this plugin without it.");
+                Log.LogFatal("ResoniteModLoader is not loaded! You cannot use this mod without it.");
             }
         };
 
-        Log.LogInfo($"Plugin {PluginMetadata.GUID} is loaded!");
+        Log.LogInfo($"Plugin {PluginMetadata.GUID} is partially loaded!");
     }
-    
+
     [HarmonyPatch(typeof(AssemblyPostProcessor))]
     public class AssemblyPostProcessorPatch
     {
         private static MethodBase TargetMethod() => AccessTools.Method(typeof(AssemblyPostProcessor), "Process", new[] { typeof(string), typeof(string).MakeByRefType(), typeof(string) });
-        
+
         private static Exception Finalizer(Exception __exception)
         {
             if (__exception is IOException ioEx &&
@@ -79,29 +82,45 @@ public class Plugin : BasePlugin
         plguinsGroup.InitBase("RMLSettingsGroup", path, null, "Settings.RML.Mods".AsLocaleKey());
         yield return plguinsGroup;
 
-        DataFeedGrid pluginsGrid = new DataFeedGrid();
-        pluginsGrid.InitBase("ModsGrid", path, ["RMLSettingsGroup"], "Settings.RML.LoadedMods".AsLocaleKey());
-        yield return pluginsGrid;
+        DataFeedGrid modsGrid = new DataFeedGrid();
+        modsGrid.InitBase("ModsGrid", path, ["RMLSettingsGroup"], "Settings.RML.LoadedMods".AsLocaleKey());
+        yield return modsGrid;
 
         string[] loadedModsGroup = ["RMLSettingsGroup", "ModsGrid"];
 
-        List<ResoniteModBase> sortedMods = new List<ResoniteModBase>(ModLoader.Mods());
-        if (sortedMods.Count > 0)
+        List<ResoniteModBase> mods = new List<ResoniteModBase>(ModLoader.Mods());
+        if (mods.Count > 0)
         {
+            List<ResoniteModBase> sortedMods = new List<ResoniteModBase>(mods);
             sortedMods.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            foreach (ResoniteModBase mod in sortedMods)
+            
+            List<ResoniteModBase> filteredMods = FilterMods(sortedMods, BepisSettingsPage.SearchString).ToList();
+
+            if (filteredMods.Count > 0)
             {
-                string pluginname = mod.Name;
-                string pluginGuid = $"rml.{mod.Author}.{mod.Name}_custom_settings";
+                foreach (ResoniteModBase mod in filteredMods)
+                {
+                    string modname = mod.Name;
+                    string modGuid = mod.GetModId();
 
-                LocaleString nameKey = pluginname;
-                LocaleString description = $"{pluginname}\n{pluginGuid}\n({mod.Version})";
+                    LocaleLoader.AddLocaleString($"Settings.{modGuid}.Breadcrumb", modname, authors: PluginMetadata.AUTHORS);
 
-                LocaleLoader.AddLocaleString($"Settings.{pluginGuid}.Breadcrumb", pluginname, authors: PluginMetadata.AUTHORS);
-
-                DataFeedCategory loadedPlugin = new DataFeedCategory();
-                loadedPlugin.InitBase(pluginGuid, path, loadedModsGroup, nameKey, description);
-                yield return loadedPlugin;
+                    DataFeedCategory loadedPlugin = new DataFeedCategory();
+                    loadedPlugin.InitBase(modGuid, path, loadedModsGroup, modname, $"{modname}\n{modGuid}\n({mod.Version})");
+                    yield return loadedPlugin;
+                }
+            }
+            else if (!string.IsNullOrEmpty(BepisSettingsPage.SearchString))
+            {
+                DataFeedLabel noResults = new DataFeedLabel();
+                noResults.InitBase("NoSearchResults", path, loadedModsGroup, "Settings.RML.Mods.NoSearchResults".AsLocaleKey());
+                yield return noResults;
+            }
+            else
+            {
+                DataFeedLabel noMods = new DataFeedLabel();
+                noMods.InitBase("NoMods", path, loadedModsGroup, "Settings.RML.Mods.NoMods".AsLocaleKey());
+                yield return noMods;
             }
         }
         else
@@ -111,13 +130,37 @@ public class Plugin : BasePlugin
             yield return noMods;
         }
     }
+    
+    private static IEnumerable<ResoniteModBase> FilterMods(List<ResoniteModBase> mods, string searchString)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+        {
+            return mods;
+        }
+
+        string searchLower = searchString.ToLowerInvariant();
+
+        return mods.Where(plugin =>
+        {
+            if (plugin.Name.Contains(searchLower, StringComparison.InvariantCultureIgnoreCase))
+                return true;
+            
+            if (plugin.Version.ToString().Contains(searchLower, StringComparison.InvariantCultureIgnoreCase))
+                return true;
+            
+            if (plugin.Author.Contains(searchLower, StringComparison.InvariantCultureIgnoreCase))
+                return true;
+
+            return false;
+        });
+    }
 
     public static async IAsyncEnumerable<DataFeedItem> RMLSettingsConfigsEnumerate(IReadOnlyList<string> path)
     {
         await Task.CompletedTask;
 
-        string pluginId = path[1].Replace("_custom_settings", "");
-        ResoniteModBase mod = ModLoader.Mods().FirstOrDefault(mod => $"rml.{mod.Author}.{mod.Name}" == pluginId);
+        string modId = path[1];
+        ResoniteModBase mod = ModLoader.Mods().FirstOrDefault(mod => mod.GetModId() == modId);
         if (mod == null) yield break;
 
         ModConfiguration modConfig = mod.GetConfiguration();
@@ -145,7 +188,7 @@ public class Plugin : BasePlugin
 
         DataFeedIndicator<string> idIndicator = new DataFeedIndicator<string>();
         idIndicator.InitBase("Id", path, metadataGroup, "Settings.RML.Mods.Guid".AsLocaleKey());
-        idIndicator.InitSetupValue(field => field.Value = pluginId);
+        idIndicator.InitSetupValue(field => field.Value = modId);
         yield return idIndicator;
 
         if (!string.IsNullOrWhiteSpace(mod.Author))
@@ -181,7 +224,7 @@ public class Plugin : BasePlugin
         // Used for enum config keys. basically you can define a function which will display a subcategory of this category.
         // CategoryHandlers.Clear();
 
-        string pluginId = path[1].Replace("_custom_settings", "");
+        string modId = path[1];
 
         if (modConfig.ConfigurationItemDefinitions.Count > 0)
         {
@@ -210,7 +253,7 @@ public class Plugin : BasePlugin
                             if (store == null) return;
 
                             if (!store.Value.Value) return;
-                            ResetConfigSection(pluginId, section);
+                            ResetConfigSection(modId, section);
                         };
                     });
                     yield return configs;
@@ -325,7 +368,7 @@ public class Plugin : BasePlugin
             Button btn = syncDelegate.Slot.GetComponent<Button>();
             if (btn == null) return;
 
-            btn.LocalPressed += (_, _) => SaveConfigs(pluginId);
+            btn.LocalPressed += (_, _) => SaveConfigs(modId);
         });
         yield return saveAct;
 
@@ -344,7 +387,7 @@ public class Plugin : BasePlugin
                 SetColor(3, new colorX(0.88f, 0.88f, 0.88f));
             }
 
-            btn.LocalPressed += (b, _) => ResetConfigs(b, pluginId, valueDriver);
+            btn.LocalPressed += (b, _) => ResetConfigs(b, modId, valueDriver);
 
             return;
 
@@ -370,19 +413,18 @@ public class Plugin : BasePlugin
         yield return item;
     }
 
-    private static void SaveConfigs(string pluginId)
+    private static void SaveConfigs(string modId)
     {
-        Plugin.Log.LogDebug($"Saving Configs for {pluginId}");
+        Plugin.Log.LogDebug($"Saving Configs for {modId}");
 
-        pluginId = pluginId.Replace("_custom_settings", "");
-        ResoniteModBase mod = ModLoader.Mods().FirstOrDefault(mod => $"rml.{mod.Author}.{mod.Name}" == pluginId);
+        ResoniteModBase mod = ModLoader.Mods().FirstOrDefault(mod => mod.GetModId() == modId);
         mod?.GetConfiguration()?.Save();
     }
 
     private static bool _resetPressed;
     private static CancellationTokenSource _cts;
 
-    private static void ResetConfigs(IButton btn, string pluginId, ValueMultiDriver<bool> vmd = null)
+    private static void ResetConfigs(IButton btn, string modId, ValueMultiDriver<bool> vmd = null)
     {
         try
         {
@@ -409,8 +451,7 @@ public class Plugin : BasePlugin
                 return;
             }
 
-            pluginId = pluginId.Replace("_custom_settings", "");
-            ResoniteModBase mod = ModLoader.Mods().FirstOrDefault(mod => $"rml.{mod.Author}.{mod.Name}" == pluginId);
+            ResoniteModBase mod = ModLoader.Mods().FirstOrDefault(mod => mod.GetModId() == modId);
             if (mod == null) return;
 
             ModConfiguration modConfig = mod.GetConfiguration();
@@ -430,7 +471,7 @@ public class Plugin : BasePlugin
             _cts?.Cancel();
             _cts = null;
 
-            Plugin.Log.LogInfo($"Configs for {pluginId} have been reset.");
+            Plugin.Log.LogInfo($"Configs for {modId} have been reset.");
         }
         catch (Exception e)
         {
@@ -438,12 +479,11 @@ public class Plugin : BasePlugin
         }
     }
 
-    private static void ResetConfigSection(string pluginId, string section)
+    private static void ResetConfigSection(string modId, string section)
     {
         try
         {
-            pluginId = pluginId.Replace("_custom_settings", "");
-            ResoniteModBase mod = ModLoader.Mods().FirstOrDefault(mod => $"rml.{mod.Author}.{mod.Name}" == pluginId);
+            ResoniteModBase mod = ModLoader.Mods().FirstOrDefault(mod => mod.GetModId() == modId);
             if (mod == null) return;
 
             ModConfiguration modConfig = mod.GetConfiguration();
@@ -456,11 +496,16 @@ public class Plugin : BasePlugin
                 }
             }
 
-            Plugin.Log.LogInfo($"Configs for {pluginId}-{section} have been reset.");
+            Plugin.Log.LogInfo($"Configs for {modId}-{section} have been reset.");
         }
         catch (Exception e)
         {
             Plugin.Log.LogError(e);
         }
     }
+}
+
+public static class Helpers
+{
+    public static string GetModId(this ResoniteModBase mod) => $"rml.{mod.Author}.{mod.Name}".ToLower().Replace(" ", ".");
 }

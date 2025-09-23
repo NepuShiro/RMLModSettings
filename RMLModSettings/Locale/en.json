@@ -8,6 +8,7 @@
     "Settings.RML.Mods.LoadedMods": "Loaded Mods",
     "Settings.RML.Mods.NoConfigs": "This Mod has No Configs",
     "Settings.RML.Mods.NoMods": "There is no Mods Loaded",
+    "Settings.RML.Mods.NoSearchResults": "No Mods found",
 
     "Settings.RML.Mods.Config.FlagsEnum": "PlaceHolder",
     "Settings.RML.Mods.Config.FlagsEnum.Description": "Toggles the '{name}' enum flag.",
