@@ -4,10 +4,10 @@ using BepInEx.Logging;
 using BepInEx.NET.Common;
 using BepInExResoniteShim;
 using BepisLocaleLoader;
+using BepisModSettings.DataFeeds;
 using Elements.Core;
 using FrooxEngine;
 using ResoniteModLoader;
-using BepisModSettings.DataFeeds;
 using BepisResoniteWrapper;
 using FrooxEngine.UIX;
 using FrooxEngine.Weaver;
@@ -41,8 +41,8 @@ public class Plugin : BasePlugin
 
             if (isRmlLoaded)
             {
-                BepisSettingsPage.CustomPluginsPages += RMLSettingsEnumerate;
-                BepisPluginPage.CustomPluginConfigsPages += RMLSettingsConfigsEnumerate;
+                BepisSettingsPage.CustomPluginsPages += RmlSettingsEnumerate;
+                BepisPluginPage.CustomPluginConfigsPages += RmlSettingsConfigsEnumerate;
 
                 Log.LogInfo($"Plugin {PluginMetadata.GUID} is fully loaded!");
             }
@@ -56,10 +56,12 @@ public class Plugin : BasePlugin
     }
 
     [HarmonyPatch(typeof(AssemblyPostProcessor))]
-    public class AssemblyPostProcessorPatch
+    private class AssemblyPostProcessorPatch
     {
         private static MethodBase TargetMethod() => AccessTools.Method(typeof(AssemblyPostProcessor), "Process", new[] { typeof(string), typeof(string).MakeByRefType(), typeof(string) });
 
+        // I Honestly hate that this is needed, but net9 has an iron grip on DLL's and apparently referencing RML here causes this exception even though it's not loaded at this point in time
+        // It's a non issue exception though, it just causes the engine to explode since it isn't caught in FrooxEngine.Weaver.
         private static Exception Finalizer(Exception __exception)
         {
             if (__exception is IOException ioEx &&
@@ -74,7 +76,7 @@ public class Plugin : BasePlugin
         }
     }
 
-    public static async IAsyncEnumerable<DataFeedItem> RMLSettingsEnumerate(IReadOnlyList<string> path)
+    private static async IAsyncEnumerable<DataFeedItem> RmlSettingsEnumerate(IReadOnlyList<string> path)
     {
         await Task.CompletedTask;
 
@@ -93,7 +95,7 @@ public class Plugin : BasePlugin
         {
             List<ResoniteModBase> sortedMods = new List<ResoniteModBase>(mods);
             sortedMods.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            
+
             List<ResoniteModBase> filteredMods = FilterMods(sortedMods, BepisSettingsPage.SearchString).ToList();
 
             if (filteredMods.Count > 0)
@@ -130,7 +132,7 @@ public class Plugin : BasePlugin
             yield return noMods;
         }
     }
-    
+
     private static IEnumerable<ResoniteModBase> FilterMods(List<ResoniteModBase> mods, string searchString)
     {
         if (string.IsNullOrWhiteSpace(searchString))
@@ -144,10 +146,10 @@ public class Plugin : BasePlugin
         {
             if (plugin.Name.Contains(searchLower, StringComparison.InvariantCultureIgnoreCase))
                 return true;
-            
+
             if (plugin.Version.ToString().Contains(searchLower, StringComparison.InvariantCultureIgnoreCase))
                 return true;
-            
+
             if (plugin.Author.Contains(searchLower, StringComparison.InvariantCultureIgnoreCase))
                 return true;
 
@@ -155,7 +157,7 @@ public class Plugin : BasePlugin
         });
     }
 
-    public static async IAsyncEnumerable<DataFeedItem> RMLSettingsConfigsEnumerate(IReadOnlyList<string> path)
+    private static async IAsyncEnumerable<DataFeedItem> RmlSettingsConfigsEnumerate(IReadOnlyList<string> path)
     {
         await Task.CompletedTask;
 
@@ -228,7 +230,6 @@ public class Plugin : BasePlugin
 
         if (modConfig.ConfigurationItemDefinitions.Count > 0)
         {
-            HashSet<string> sections = new HashSet<string>();
             List<string> added = new List<string>();
             foreach (ModConfigurationKey config in modConfig.ConfigurationItemDefinitions)
             {
@@ -236,28 +237,26 @@ public class Plugin : BasePlugin
 
                 Type valueType = config.ValueType();
 
-                string section = "Configs";
-                if (sections.Add(section))
+                const string section = "Configs";
+
+                DataFeedResettableGroup configs = new DataFeedResettableGroup();
+                configs.InitBase(section, path, null, section);
+                configs.InitResetAction(a =>
                 {
-                    DataFeedResettableGroup configs = new DataFeedResettableGroup();
-                    configs.InitBase(section, path, null, section);
-                    configs.InitResetAction(a =>
+                    Button but = a.Slot.GetComponentInChildren<Button>();
+                    if (but == null) return;
+
+                    but.LocalPressed += (b, _) =>
                     {
-                        Button but = a.Slot.GetComponentInChildren<Button>();
-                        if (but == null) return;
+                        Slot resetBtn = b.Slot.FindParent(x => x.Name == "Reset Button");
+                        var store = resetBtn?.GetComponentInChildren<DataModelValueFieldStore<bool>.Store>();
+                        if (store == null) return;
 
-                        but.LocalPressed += (b, _) =>
-                        {
-                            Slot resetBtn = b.Slot.FindParent(x => x.Name == "Reset Button");
-                            var store = resetBtn?.GetComponentInChildren<DataModelValueFieldStore<bool>.Store>();
-                            if (store == null) return;
-
-                            if (!store.Value.Value) return;
-                            ResetConfigSection(modId, section);
-                        };
-                    });
-                    yield return configs;
-                }
+                        if (!store.Value.Value) return;
+                        ResetConfigSection(modId, section);
+                    };
+                });
+                yield return configs;
 
                 string initKey = section + "." + config.Name;
                 string key = added.Contains(initKey) ? initKey + added.Count : initKey;
@@ -279,7 +278,7 @@ public class Plugin : BasePlugin
                 }
                 else if (valueType == typeof(bool))
                 {
-                    yield return DataFeedHelpers.GenerateToggle(key, path, groupingKeys, modConfig, config);
+                    yield return ConfigHelpers.GenerateToggle(key, path, groupingKeys, modConfig, config);
                 }
                 else if (valueType.IsEnum)
                 {
@@ -297,7 +296,7 @@ public class Plugin : BasePlugin
                         // }
                         // else
                         // {
-                        enumItem = (DataFeedItem)DataFeedHelpers.GenerateEnumItemsAsync.MakeGenericMethod(valueType).Invoke(null, [key, path, groupingKeys, modConfig, config]);
+                        enumItem = (DataFeedItem)ConfigHelpers.GenerateEnumItemsAsync.MakeGenericMethod(valueType).Invoke(null, [key, path, groupingKeys, modConfig, config]);
                         // }
                     }
                     catch (Exception e)
@@ -318,7 +317,7 @@ public class Plugin : BasePlugin
 
                         try
                         {
-                            nullableEnumItems = (IAsyncEnumerable<DataFeedItem>)DataFeedHelpers.GenerateNullableEnumItemsAsync.MakeGenericMethod(nullableType).Invoke(null, [key, path, groupingKeys, config]);
+                            nullableEnumItems = (IAsyncEnumerable<DataFeedItem>)ConfigHelpers.GenerateNullableEnumItemsAsync.MakeGenericMethod(nullableType).Invoke(null, [key, path, groupingKeys, config]);
                         }
                         catch (Exception e)
                         {
@@ -326,7 +325,7 @@ public class Plugin : BasePlugin
                             DataFeedValueField<dummy> dummyField = new DataFeedValueField<dummy>();
                             dummyField.InitBase(key, path, groupingKeys, defaultKey, descKey);
 
-                            nullableEnumItems = GetDummyAsync(dummyField);
+                            nullableEnumItems = dummyField.AsAsyncEnumerable();
                         }
 
                         await foreach (DataFeedItem item in nullableEnumItems)
@@ -341,7 +340,7 @@ public class Plugin : BasePlugin
 
                     try
                     {
-                        valueItem = (DataFeedItem)DataFeedHelpers.GenerateValueField.MakeGenericMethod(valueType).Invoke(null, [key, path, groupingKeys, modConfig, config]);
+                        valueItem = (DataFeedItem)ConfigHelpers.GenerateValueField.MakeGenericMethod(valueType).Invoke(null, [key, path, groupingKeys, modConfig, config]);
                     }
                     catch (Exception e)
                     {
@@ -404,13 +403,6 @@ public class Plugin : BasePlugin
             }
         });
         yield return resetAct;
-    }
-
-    private static async IAsyncEnumerable<DataFeedItem> GetDummyAsync(DataFeedItem item)
-    {
-        await Task.CompletedTask;
-
-        yield return item;
     }
 
     private static void SaveConfigs(string modId)
@@ -503,9 +495,4 @@ public class Plugin : BasePlugin
             Plugin.Log.LogError(e);
         }
     }
-}
-
-public static class Helpers
-{
-    public static string GetModId(this ResoniteModBase mod) => $"rml.{mod.Author}.{mod.Name}".ToLower().Replace(" ", ".");
 }
