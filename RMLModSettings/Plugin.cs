@@ -107,7 +107,7 @@ public class Plugin : BasePlugin
                     LocaleLoader.AddLocaleString($"Settings.{modGuid}.Breadcrumb", modname, authors: PluginMetadata.AUTHORS);
 
                     DataFeedCategory loadedPlugin = new DataFeedCategory();
-                    loadedPlugin.InitBase(modGuid, path, loadedModsGroup, modname, $"{modname}\n{modGuid}\n({mod.Version})");
+                    loadedPlugin.InitBase(modGuid, path, loadedModsGroup, modname, $"{modname} ({mod.Version})\nby \"{mod.Author}\"\n\n{modGuid}");
                     yield return loadedPlugin;
                 }
 
@@ -119,11 +119,11 @@ public class Plugin : BasePlugin
                 DataFeedLabel noResults = new DataFeedLabel();
                 noResults.InitBase("NoSearchResults", path, loadedModsGroup, "Settings.RML.Mods.NoSearchResults".AsLocaleKey());
                 yield return noResults;
-                
+
                 yield break;
             }
         }
-        
+
         DataFeedLabel noMods = new DataFeedLabel();
         noMods.InitBase("NoMods", path, loadedModsGroup, "Settings.RML.Mods.NoMods".AsLocaleKey());
         yield return noMods;
@@ -132,7 +132,7 @@ public class Plugin : BasePlugin
     private static IEnumerable<ResoniteModBase> FilterMods(List<ResoniteModBase> mods, string searchString)
     {
         searchString = searchString.Trim();
-        
+
         return mods.Where(mod =>
         {
             if (!BepisModSettings.Plugin.ShowEmptyPages.Value)
@@ -228,34 +228,34 @@ public class Plugin : BasePlugin
         // CategoryHandlers.Clear();
 
         string modId = path[1];
-        
+
+        const string section = "Configs";
+
+        DataFeedResettableGroup configs = new DataFeedResettableGroup();
+        configs.InitBase(section, path, null, section);
+        configs.InitResetAction(a =>
+        {
+            Button but = a.Slot.GetComponentInChildren<Button>();
+            if (but == null) return;
+
+            but.LocalPressed += (b, _) =>
+            {
+                Slot resetBtn = b.Slot.FindParent(x => x.Name == "Reset Button");
+                var store = resetBtn?.GetComponentInChildren<DataModelValueFieldStore<bool>.Store>();
+                if (store == null) return;
+
+                if (!store.Value.Value) return;
+                ResetConfigSection(modId, section);
+            };
+        });
+        yield return configs;
+
         List<string> added = new List<string>();
         foreach (ModConfigurationKey config in modConfig.ConfigurationItemDefinitions)
         {
             if (!BepisModSettings.Plugin.ShowHidden.Value && config.InternalAccessOnly) continue;
 
             Type valueType = config.ValueType();
-
-            const string section = "Configs";
-
-            DataFeedResettableGroup configs = new DataFeedResettableGroup();
-            configs.InitBase(section, path, null, section);
-            configs.InitResetAction(a =>
-            {
-                Button but = a.Slot.GetComponentInChildren<Button>();
-                if (but == null) return;
-
-                but.LocalPressed += (b, _) =>
-                {
-                    Slot resetBtn = b.Slot.FindParent(x => x.Name == "Reset Button");
-                    var store = resetBtn?.GetComponentInChildren<DataModelValueFieldStore<bool>.Store>();
-                    if (store == null) return;
-
-                    if (!store.Value.Value) return;
-                    ResetConfigSection(modId, section);
-                };
-            });
-            yield return configs;
 
             string initKey = section + "." + config.Name;
             string key = added.Contains(initKey) ? initKey + added.Count : initKey;
