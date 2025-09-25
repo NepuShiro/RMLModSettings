@@ -6,7 +6,7 @@
         <TargetFramework>net9.0</TargetFramework>
         <RepositoryUrl>https://github.com/NepuShiro/RMLModSettings</RepositoryUrl>
         <PackageId>NepuShiro.RMLModSettings</PackageId>
-        <Product>RMLModSettings</Product>
+        <Product>RML Mod Settings</Product>
         <RootNamespace>RMLModSettings</RootNamespace>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>disable</Nullable>
