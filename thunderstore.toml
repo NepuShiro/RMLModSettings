@@ -14,8 +14,8 @@ containsNsfwContent = false
 # List any dependencies your mod has here, in the format "namespace-modname" = "version-constraint"
 [package.dependencies] 
 ResoniteModding-BepisLoader = "1.4.1"
-ResoniteModding-BepisModSettings = "1.1.1"
-ResoniteModding-BepisLocaleLoader = "1.0.0"
+ResoniteModding-BepisModSettings = "1.2.0"
+ResoniteModding-BepisLocaleLoader = "1.1.0"
 ResoniteModding-BepisResoniteWrapper = "1.0.0"
 
 [build]
