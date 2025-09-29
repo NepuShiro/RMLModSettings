@@ -5,14 +5,14 @@ using BepInEx.NET.Common;
 using BepInExResoniteShim;
 using BepisLocaleLoader;
 using BepisModSettings.DataFeeds;
+using BepisResoniteWrapper;
 using Elements.Core;
 using FrooxEngine;
-using ResoniteModLoader;
-using BepisResoniteWrapper;
 using FrooxEngine.UIX;
 using FrooxEngine.Weaver;
 using HarmonyLib;
 using ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Variables;
+using ResoniteModLoader;
 
 namespace RMLModSettings;
 
@@ -31,24 +31,16 @@ public class Plugin : BasePlugin
 
         ResoniteHooks.OnEngineReady += () =>
         {
-            bool isRmlLoaded = false;
-
-            try
+            if (AppDomain.CurrentDomain.GetAssemblies().Any(assembly => assembly.GetName().Name?.Contains("ResoniteModLoader") == true))
             {
-                isRmlLoaded = !string.IsNullOrEmpty(ModLoader.VERSION);
-            }
-            catch { }
-
-            if (isRmlLoaded)
-            {
-                BepisSettingsPage.CustomPluginsPages += RmlSettingsEnumerate;
-                BepisPluginPage.CustomPluginConfigsPages += RmlSettingsConfigsEnumerate;
+                BepisPluginsPage.CustomPluginsPages += RmlSettingsEnumerate;
+                BepisConfigsPage.CustomPluginConfigsPages += RmlSettingsConfigsEnumerate;
 
                 Log.LogInfo($"Plugin {PluginMetadata.GUID} is fully loaded!");
             }
             else
             {
-                Log.LogFatal("ResoniteModLoader is not loaded! You cannot use this mod without it.");
+                Log.LogFatal("ResoniteModLoader is not loaded! You cannot use this plugin without it.");
             }
         };
 
@@ -96,25 +88,28 @@ public class Plugin : BasePlugin
             List<ResoniteModBase> sortedMods = new List<ResoniteModBase>(mods);
             sortedMods.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
-            List<ResoniteModBase> filteredMods = FilterMods(sortedMods, BepisSettingsPage.SearchString).ToList();
+            List<ResoniteModBase> filteredMods = FilterMods(sortedMods, BepisPluginsPage.SearchString).ToList();
             if (filteredMods.Count > 0)
             {
                 foreach (ResoniteModBase mod in filteredMods)
                 {
-                    string modname = mod.Name;
+                    bool isEmpty = ConfigHelpers.IsEmpty(mod.GetConfiguration());
+
+                    string modName = isEmpty ? $"<color=#a8a8a8>{mod.Name}</color>" : mod.Name;
                     string modGuid = mod.GetModId();
 
-                    LocaleLoader.AddLocaleString($"Settings.{modGuid}.Breadcrumb", modname, authors: PluginMetadata.AUTHORS);
+                    LocaleLoader.AddLocaleString($"Settings.{modGuid}.Breadcrumb", modName, authors: PluginMetadata.AUTHORS);
 
                     DataFeedCategory loadedPlugin = new DataFeedCategory();
-                    loadedPlugin.InitBase(modGuid, path, loadedModsGroup, modname, $"{modname} ({mod.Version})\nby \"{mod.Author}\"\n\n{modGuid}");
+                    loadedPlugin.InitBase(modGuid, path, loadedModsGroup, modName, $"{modName} ({mod.Version})\nby \"{mod.Author}\"\n\n{modGuid}");
+                    if (isEmpty) loadedPlugin.InitSorting(1);
                     yield return loadedPlugin;
                 }
 
                 yield break;
             }
 
-            if (!string.IsNullOrEmpty(BepisSettingsPage.SearchString))
+            if (!string.IsNullOrEmpty(BepisPluginsPage.SearchString))
             {
                 DataFeedLabel noResults = new DataFeedLabel();
                 noResults.InitBase("NoSearchResults", path, loadedModsGroup, "Settings.RML.Mods.NoSearchResults".AsLocaleKey());
@@ -137,8 +132,7 @@ public class Plugin : BasePlugin
         {
             if (!BepisModSettings.Plugin.ShowEmptyPages.Value)
             {
-                ModConfiguration modConfig = mod.GetConfiguration();
-                if (modConfig == null || modConfig.ConfigurationItemDefinitions.Count == 0)
+                if (ConfigHelpers.IsEmpty(mod.GetConfiguration()))
                     return false;
             }
 
@@ -167,7 +161,7 @@ public class Plugin : BasePlugin
         if (mod == null) yield break;
 
         ModConfiguration modConfig = mod.GetConfiguration();
-        if (modConfig == null || modConfig.ConfigurationItemDefinitions.Count == 0)
+        if (ConfigHelpers.IsEmpty(modConfig))
         {
             DataFeedLabel noConfigs = new DataFeedLabel();
             noConfigs.InitBase("NoConfigs", path, null, "Settings.RML.Mods.NoConfigs".AsLocaleKey());
@@ -207,13 +201,13 @@ public class Plugin : BasePlugin
         versionIndicator.InitSetupValue(field => field.Value = mod.Version);
         yield return versionIndicator;
 
-        if (!string.IsNullOrWhiteSpace(mod.Link) && Uri.TryCreate(mod.Link, UriKind.Absolute, out var uri))
+        if (!string.IsNullOrWhiteSpace(mod.Link) && Uri.TryCreate(mod.Link, UriKind.Absolute, out Uri uri))
         {
-            var modHyperlink = new DataFeedAction();
+            DataFeedAction modHyperlink = new DataFeedAction();
             modHyperlink.InitBase("Link", path, metadataGroup, "Settings.RML.Mods.ModPage".AsLocaleKey());
             modHyperlink.InitAction(syncDelegate =>
             {
-                var slot = syncDelegate?.Slot;
+                Slot slot = syncDelegate?.Slot;
                 if (slot == null) return;
 
                 slot.AttachComponent<Hyperlink>().URL.Value = uri;
@@ -241,7 +235,7 @@ public class Plugin : BasePlugin
             but.LocalPressed += (b, _) =>
             {
                 Slot resetBtn = b.Slot.FindParent(x => x.Name == "Reset Button");
-                var store = resetBtn?.GetComponentInChildren<DataModelValueFieldStore<bool>.Store>();
+                DataModelValueFieldStore<bool>.Store store = resetBtn?.GetComponentInChildren<DataModelValueFieldStore<bool>.Store>();
                 if (store == null) return;
 
                 if (!store.Value.Value) return;
@@ -253,17 +247,20 @@ public class Plugin : BasePlugin
         List<string> added = new List<string>();
         foreach (ModConfigurationKey config in modConfig.ConfigurationItemDefinitions)
         {
-            if (!BepisModSettings.Plugin.ShowHidden.Value && config.InternalAccessOnly) continue;
+            bool isHidden = config.InternalAccessOnly;
+            if (!BepisModSettings.Plugin.ShowHidden.Value && isHidden) continue;
 
             Type valueType = config.ValueType();
 
             string initKey = section + "." + config.Name;
             string key = added.Contains(initKey) ? initKey + added.Count : initKey;
 
-            LocaleString nameKey = config.Name;
+            LocaleString nameKey = isHidden ? $"<color=hero.yellow>{config.Name}</color>" : config.Name;
             LocaleString descKey = config.Description;
             LocaleString defaultKey = $"{config.Name} : {valueType}";
             // LocaleString valueKey = $"{config.Name} : {modConfig.GetValue(config)}";
+
+            if (isHidden) nameKey = nameKey.SetFormat("<color=hero.yellow>{0}</color>");
 
             added.Add(key);
 
@@ -300,7 +297,7 @@ public class Plugin : BasePlugin
                 }
                 catch (Exception e)
                 {
-                    Plugin.Log.LogError(e);
+                    Log.LogError(e);
                     enumItem = new DataFeedValueField<dummy>();
                     enumItem.InitBase(key, path, groupingKeys, defaultKey, descKey);
                 }
@@ -320,7 +317,7 @@ public class Plugin : BasePlugin
                     }
                     catch (Exception e)
                     {
-                        Plugin.Log.LogError(e);
+                        Log.LogError(e);
                         DataFeedValueField<dummy> dummyField = new DataFeedValueField<dummy>();
                         dummyField.InitBase(key, path, groupingKeys, defaultKey, descKey);
 
@@ -343,7 +340,7 @@ public class Plugin : BasePlugin
                 }
                 catch (Exception e)
                 {
-                    Plugin.Log.LogError(e);
+                    Log.LogError(e);
                     valueItem = new DataFeedValueField<dummy>();
                     valueItem.InitBase(key, path, groupingKeys, defaultKey, descKey);
                 }
@@ -405,7 +402,7 @@ public class Plugin : BasePlugin
 
     private static void SaveConfigs(string modId)
     {
-        Plugin.Log.LogDebug($"Saving Configs for {modId}");
+        Log.LogDebug($"Saving Configs for {modId}");
 
         ResoniteModBase mod = ModLoader.Mods().FirstOrDefault(mod => mod.GetModId() == modId);
         mod?.GetConfiguration()?.Save();
@@ -445,9 +442,9 @@ public class Plugin : BasePlugin
             if (mod == null) return;
 
             ModConfiguration modConfig = mod.GetConfiguration();
-            if (modConfig?.ConfigurationItemDefinitions.Count > 0)
+            if (!ConfigHelpers.IsEmpty(modConfig))
             {
-                foreach (ModConfigurationKey entry in modConfig.ConfigurationItemDefinitions)
+                foreach (ModConfigurationKey entry in modConfig!.ConfigurationItemDefinitions)
                 {
                     if (entry.TryComputeDefault(out object value))
                         modConfig.Set(entry, value);
@@ -461,11 +458,11 @@ public class Plugin : BasePlugin
             _cts?.Cancel();
             _cts = null;
 
-            Plugin.Log.LogInfo($"Configs for {modId} have been reset.");
+            Log.LogInfo($"Configs for {modId} have been reset.");
         }
         catch (Exception e)
         {
-            Plugin.Log.LogError(e);
+            Log.LogError(e);
         }
     }
 
@@ -477,20 +474,20 @@ public class Plugin : BasePlugin
             if (mod == null) return;
 
             ModConfiguration modConfig = mod.GetConfiguration();
-            if (modConfig?.ConfigurationItemDefinitions.Count > 0)
+            if (!ConfigHelpers.IsEmpty(modConfig))
             {
-                foreach (ModConfigurationKey entry in modConfig.ConfigurationItemDefinitions)
+                foreach (ModConfigurationKey entry in modConfig!.ConfigurationItemDefinitions)
                 {
                     if (entry.TryComputeDefault(out object value))
                         modConfig.Set(entry, value);
                 }
             }
 
-            Plugin.Log.LogInfo($"Configs for {modId}-{section} have been reset.");
+            Log.LogInfo($"Configs for {modId}-{section} have been reset.");
         }
         catch (Exception e)
         {
-            Plugin.Log.LogError(e);
+            Log.LogError(e);
         }
     }
 }

@@ -10,10 +10,10 @@
  */
 
 using System.Reflection;
+using BepisModSettings.DataFeeds;
 using FrooxEngine;
 using HarmonyLib;
 using ResoniteModLoader;
-using BepisModSettings.DataFeeds;
 
 namespace RMLModSettings;
 
@@ -217,6 +217,8 @@ public static class ConfigHelpers
             field.Changed -= fieldChangedHandler;
         }
     }
+
+    public static bool IsEmpty(ModConfiguration config) => config == null || config.ConfigurationItemDefinitions.Count == 0 || config.ConfigurationItemDefinitions.All(configIn => !BepisModSettings.Plugin.ShowHidden.Value || configIn.InternalAccessOnly);
 
     // internal static async IAsyncEnumerable<DataFeedItem> HandleFlagsEnumCategoryMethod<T>(IReadOnlyList<string> path, ModConfiguration config, ModConfigurationKey configKey) where T : Enum
     // {
