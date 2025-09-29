@@ -23,22 +23,22 @@ public static class ConfigHelpers
     internal static readonly MethodInfo GenerateNullableEnumItemsAsync = AccessTools.Method(typeof(ConfigHelpers), nameof(GenerateNullableEnumItemsAsyncMethod));
     internal static readonly MethodInfo GenerateValueField = AccessTools.Method(typeof(ConfigHelpers), nameof(GenerateValueFieldMethod));
     // internal static readonly MethodInfo HandleFlagsEnumCategory = AccessTools.Method(typeof(DataFeedHelpers), nameof(HandleFlagsEnumCategoryMethod));
-    
+
     public static string GetModId(this ResoniteModBase mod) => $"rml.{mod.Author}.{mod.Name}".ToLower().Replace(" ", ".");
 
-    internal static DataFeedToggle GenerateToggle(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, ModConfiguration config, ModConfigurationKey configKey)
+    internal static DataFeedToggle GenerateToggle(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, InternalLocale internalLocale, ModConfiguration config, ModConfigurationKey configKey)
     {
         DataFeedToggle toggle = new DataFeedToggle();
-        toggle.InitBase($"{key}.Toggle", path, groupKeys, configKey.Name, configKey.Description);
+        toggle.InitBase($"{key}.Toggle", path, groupKeys, internalLocale.Key, internalLocale.Description);
         toggle.InitSetupValue(field => field.SyncWithConfigKey(config, configKey));
 
         return toggle;
     }
 
-    internal static DataFeedValueField<T> GenerateValueFieldMethod<T>(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, ModConfiguration config, ModConfigurationKey configKey)
+    internal static DataFeedValueField<T> GenerateValueFieldMethod<T>(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, InternalLocale internalLocale, ModConfiguration config, ModConfigurationKey configKey)
     {
         DataFeedValueField<T> valueField = new DataFeedValueField<T>();
-        valueField.InitBase($"{key}.{configKey.ValueType()}", path, groupKeys, configKey.Name, configKey.Description);
+        valueField.InitBase($"{key}.{configKey.ValueType()}", path, groupKeys, internalLocale.Key, internalLocale.Description);
         valueField.InitSetupValue(field => { field.SyncWithConfigKey(config, configKey); });
 
         DataFeedHelpers.TryInjectNewTemplateType(configKey.ValueType());
@@ -46,7 +46,7 @@ public static class ConfigHelpers
         return valueField;
     }
 
-    // internal static DataFeedValueField<string> GenerateProxyField(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, ModConfiguration config, ModConfigurationKey configKey)
+    // internal static DataFeedValueField<string> GenerateProxyField(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, InternalLocale internalLocale, ModConfiguration config, ModConfigurationKey configKey)
     // {
     //     DataFeedValueField<string> valueField = new DataFeedValueField<string>();
     //     valueField.InitBase($"{key}.{config.GetValue(configKey)Type()}", path, groupKeys, internalLocale.Key, internalLocale.Description);
@@ -60,13 +60,13 @@ public static class ConfigHelpers
     //     return valueField;
     // }
 
-    private static async IAsyncEnumerable<DataFeedItem> GenerateNullableEnumItemsAsyncMethod<T>(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, ModConfigurationKey configKey)
+    private static async IAsyncEnumerable<DataFeedItem> GenerateNullableEnumItemsAsyncMethod<T>(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, InternalLocale internalLocale, ModConfigurationKey configKey)
             where T : unmanaged, Enum
     {
         await Task.CompletedTask;
 
         DataFeedGroup nullableEnumGroup = new DataFeedGroup();
-        nullableEnumGroup.InitBase($"{key}.NullableGroup", path, groupKeys, configKey.Name);
+        nullableEnumGroup.InitBase($"{key}.NullableGroup", path, groupKeys, internalLocale.Key);
         yield return nullableEnumGroup;
 
         string[] nullableGroupKeys = groupKeys.Concat([$"{key}..NullableGroup"]).ToArray();
@@ -79,7 +79,7 @@ public static class ConfigHelpers
 
             if (slot.GetComponentInParents<FeedItemInterface>() is { } feedItemInterface)
             {
-                feedItemInterface.Slot.AttachComponent<Comment>().Text.Value = configKey.Name;
+                feedItemInterface.Slot.AttachComponent<Comment>().Text.Value = internalLocale.Key.content;
             }
 
             MethodInfo method = AccessTools.Method(typeof(ConfigHelpers), nameof(SyncWithNullableConfigKeyHasValue)).MakeGenericMethod(configKey.ValueType());
@@ -99,7 +99,17 @@ public static class ConfigHelpers
 
     private static void SyncWithConfigKey<T>(this IField<T> field, ModConfiguration config, ModConfigurationKey configKey)
     {
-        field.Value = (T)(config.GetValue(configKey) ?? default(T)!);
+        object value;
+        try
+        {
+            value = config.GetValue(configKey);
+        }
+        catch
+        {
+            value = default(T);
+        }
+
+        field.Value = (T)value;
 
         field.SetupChangedHandlers(FieldChanged, configKey, KeyChanged);
 
@@ -108,7 +118,20 @@ public static class ConfigHelpers
         void FieldChanged(IChangeable _)
         {
             config.Set(configKey, field.Value);
-            field.World.RunSynchronously(() => { field.Value = (T)(config.GetValue(configKey) ?? default(T)!); });
+            field.World.RunSynchronously(() =>
+            {
+                object value2;
+                try
+                {
+                    value2 = config.GetValue(configKey);
+                }
+                catch
+                {
+                    value2 = default(T);
+                }
+
+                field.Value = (T)value2;
+            });
         }
 
         void KeyChanged(object newValue)
@@ -153,11 +176,11 @@ public static class ConfigHelpers
     //     }
     // }
 
-    private static DataFeedEnum<T> GenerateEnumItemsAsyncMethod<T>(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, ModConfiguration config, ModConfigurationKey configKey)
+    private static DataFeedEnum<T> GenerateEnumItemsAsyncMethod<T>(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, InternalLocale internalLocale, ModConfiguration config, ModConfigurationKey configKey)
             where T : unmanaged, Enum
     {
         DataFeedEnum<T> enumField = new DataFeedEnum<T>();
-        enumField.InitBase($"{key}.Enum", path, groupKeys, configKey.Name, configKey.Description);
+        enumField.InitBase($"{key}.Enum", path, groupKeys, internalLocale.Key, internalLocale.Description);
         enumField.InitSetupValue(field => field.SyncWithConfigKey(config, configKey));
 
         return enumField;
@@ -226,7 +249,7 @@ public static class ConfigHelpers
     // 
     //     const string groupId = "FlagsGroup";
     //     DataFeedGroup group = new DataFeedGroup();
-    //     group.InitBase(groupId, path, null, configKey.Name);
+    //     group.InitBase(groupId, path, null, internalLocale.Key);
     //     yield return group;
     //     string[] groupKeys = [groupId];
     // 

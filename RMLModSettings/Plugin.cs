@@ -254,6 +254,7 @@ public class Plugin : BasePlugin
 
             string initKey = section + "." + config.Name;
             string key = added.Contains(initKey) ? initKey + added.Count : initKey;
+            added.Add(key);
 
             LocaleString nameKey = isHidden ? $"<color=hero.yellow>{config.Name}</color>" : config.Name;
             LocaleString descKey = config.Description;
@@ -262,19 +263,19 @@ public class Plugin : BasePlugin
 
             if (isHidden) nameKey = nameKey.SetFormat("<color=hero.yellow>{0}</color>");
 
-            added.Add(key);
+            InternalLocale internalLocale = new InternalLocale(nameKey, descKey);
 
             string[] groupingKeys = [section];
 
             if (valueType == typeof(dummy))
             {
                 DataFeedItem dummyField = new DataFeedValueField<dummy>();
-                dummyField.InitBase(key, path, groupingKeys, nameKey, descKey);
+                dummyField.InitBase(key, path, groupingKeys, internalLocale.Key, internalLocale.Description);
                 yield return dummyField;
             }
             else if (valueType == typeof(bool))
             {
-                yield return ConfigHelpers.GenerateToggle(key, path, groupingKeys, modConfig, config);
+                yield return ConfigHelpers.GenerateToggle(key, path, groupingKeys, internalLocale, modConfig, config);
             }
             else if (valueType.IsEnum)
             {
@@ -292,7 +293,7 @@ public class Plugin : BasePlugin
                     // }
                     // else
                     // {
-                    enumItem = (DataFeedItem)ConfigHelpers.GenerateEnumItemsAsync.MakeGenericMethod(valueType).Invoke(null, [key, path, groupingKeys, modConfig, config]);
+                    enumItem = (DataFeedItem)ConfigHelpers.GenerateEnumItemsAsync.MakeGenericMethod(valueType).Invoke(null, [key, path, groupingKeys, internalLocale, modConfig, config]);
                     // }
                 }
                 catch (Exception e)
@@ -336,7 +337,7 @@ public class Plugin : BasePlugin
 
                 try
                 {
-                    valueItem = (DataFeedItem)ConfigHelpers.GenerateValueField.MakeGenericMethod(valueType).Invoke(null, [key, path, groupingKeys, modConfig, config]);
+                    valueItem = (DataFeedItem)ConfigHelpers.GenerateValueField.MakeGenericMethod(valueType).Invoke(null, [key, path, groupingKeys, internalLocale, modConfig, config]);
                 }
                 catch (Exception e)
                 {
