@@ -218,7 +218,7 @@ public static class ConfigHelpers
         }
     }
 
-    public static bool IsEmpty(ModConfiguration config) => config == null || config.ConfigurationItemDefinitions.Count == 0 || config.ConfigurationItemDefinitions.All(configIn => !BepisModSettings.Plugin.ShowHidden.Value || configIn.InternalAccessOnly);
+    public static bool IsEmpty(ModConfiguration config) => config == null || config.ConfigurationItemDefinitions.Count == 0 || config.ConfigurationItemDefinitions.All(configIn => !BepisModSettings.Plugin.ShowHidden.Value && configIn.InternalAccessOnly);
 
     // internal static async IAsyncEnumerable<DataFeedItem> HandleFlagsEnumCategoryMethod<T>(IReadOnlyList<string> path, ModConfiguration config, ModConfigurationKey configKey) where T : Enum
     // {
