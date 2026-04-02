@@ -4,6 +4,8 @@
     "NepuShiro"
   ],
   "messages": {
+    "Settings.RML.SaveAll": "Save All",
+    
     "Settings.RML.Mods": "RML Mods",
     "Settings.RML.Mods.LoadedMods": "Loaded Mods",
     "Settings.RML.Mods.NoConfigs": "This Mod has No Configs",

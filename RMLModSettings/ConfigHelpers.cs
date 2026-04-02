@@ -24,6 +24,21 @@ public static class ConfigHelpers
     internal static readonly MethodInfo GenerateValueField = AccessTools.Method(typeof(ConfigHelpers), nameof(GenerateValueFieldMethod));
     // internal static readonly MethodInfo HandleFlagsEnumCategory = AccessTools.Method(typeof(DataFeedHelpers), nameof(HandleFlagsEnumCategoryMethod));
 
+    private static Dictionary<ModConfigurationKey, FieldInfo> ConfigKeyFields = new Dictionary<ModConfigurationKey, FieldInfo>();
+    public static void SetupConfigKeyFieldInfo(ResoniteModBase mod)
+    {
+        AccessTools.GetDeclaredFields(mod.GetType()).Where(field => Attribute.GetCustomAttribute(field, typeof(AutoRegisterConfigKeyAttribute)) != null).Do(x =>
+        {
+            ModConfigurationKey key = (ModConfigurationKey)x.GetValue(x.IsStatic ? null : mod);
+            ConfigKeyFields[key] = x;
+        });
+    }
+
+    public static bool TryGetConfigKeyFieldInfo(ModConfigurationKey key, out FieldInfo field)
+    {
+        return ConfigKeyFields.TryGetValue(key, out field);
+    }
+
     public static string GetModId(this ResoniteModBase mod) => $"rml.{mod.Author}.{mod.Name}".ToLower().Replace(" ", ".");
 
     internal static DataFeedToggle GenerateToggle(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, InternalLocale internalLocale, ModConfiguration config, ModConfigurationKey configKey)
@@ -35,15 +50,29 @@ public static class ConfigHelpers
         return toggle;
     }
 
-    internal static DataFeedValueField<T> GenerateValueFieldMethod<T>(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, InternalLocale internalLocale, ModConfiguration config, ModConfigurationKey configKey)
+    internal static DataFeedItem GenerateValueFieldMethod<T>(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, InternalLocale internalLocale, ModConfiguration config, ModConfigurationKey configKey)
     {
-        DataFeedValueField<T> valueField = new DataFeedValueField<T>();
-        valueField.InitBase($"{key}.{configKey.ValueType()}", path, groupKeys, internalLocale.Key, internalLocale.Description);
-        valueField.InitSetupValue(field => { field.SyncWithConfigKey(config, configKey); });
-
         DataFeedHelpers.TryInjectNewTemplateType(configKey.ValueType());
+        
+        DataFeedItem value;
 
-        return valueField;
+        if (TryGetConfigKeyFieldInfo(configKey, out FieldInfo fieldInfo) && fieldInfo.GetCustomAttribute<RangeAttribute>() is { } rangeAttribute)
+        {
+            DataFeedSlider<T> slider = new DataFeedSlider<T>();
+            slider.InitBase($"{key}.{configKey.ValueType()}", path, groupKeys, internalLocale.Key, internalLocale.Description);
+            slider.InitSetup(field => { field.SyncWithConfigKey(config, configKey); }, min => min.BoxedValue = rangeAttribute.Min, max => max.BoxedValue = rangeAttribute.Max);
+            value = slider;
+        }
+        else
+        {
+            DataFeedValueField<T> valueField = new DataFeedValueField<T>();
+            valueField.InitBase($"{key}.{configKey.ValueType()}", path, groupKeys, internalLocale.Key, internalLocale.Description);
+            valueField.InitSetupValue(field => { field.SyncWithConfigKey(config, configKey); });
+
+            value = valueField;
+        }
+
+        return value;
     }
 
     // internal static DataFeedValueField<string> GenerateProxyField(string key, IReadOnlyList<string> path, IReadOnlyList<string> groupKeys, InternalLocale internalLocale, ModConfiguration config, ModConfigurationKey configKey)
@@ -102,7 +131,7 @@ public static class ConfigHelpers
         object value;
         try
         {
-            value = config.GetValue(configKey);
+            value = config.GetValue(configKey) ?? default(T);
         }
         catch
         {

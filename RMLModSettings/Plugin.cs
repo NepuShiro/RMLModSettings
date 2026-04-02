@@ -12,6 +12,7 @@ using FrooxEngine.UIX;
 using FrooxEngine.Weaver;
 using HarmonyLib;
 using ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Variables;
+using Renderite.Shared;
 using ResoniteModLoader;
 
 namespace RMLModSettings;
@@ -41,13 +42,31 @@ public class Plugin : BasePlugin
             else
             {
                 Log.LogFatal("ResoniteModLoader is not loaded! You cannot use this plugin without it.");
+                World w = Userspace.UserspaceWorld;
+                w.RunSynchronously(() =>
+                {
+                    Slot slot = w.RootSlot.LocalUserSpace.AddSlot("RML Mod Settings Warning", false);
+                    UIBuilder uIBuilder = RadiantUI_Panel.SetupPanel(slot, "RML Mod Settings - <color=Hero.Yellow>Warning</color>", new float2(700f, 350f), pinButton: false);
+                    RadiantUI_Constants.SetupEditorStyle(uIBuilder);
+                    uIBuilder.VerticalLayout(4f);
+                    uIBuilder.Style.MinHeight = 48f;
+
+                    uIBuilder.Text("ResoniteModLoader is <color=Hero.Red>not loaded</color>, or is <color=Hero.Red>not up to date</color>.\nYou cannot use this plugin without it!").Size.Value = 32f;
+
+                    Hyperlink hl = uIBuilder.Button("Go to Latest RML", RadiantUI_Constants.Sub.GREEN).Slot.AttachComponent<Hyperlink>();
+                    hl.URL.Value = new Uri("https://github.com/resonite-modding-group/ResoniteModLoader/releases/latest");
+                    hl.Reason.Value = "Opening RML Github";
+
+                    slot.PositionInFrontOfUser(float3.Backward, null, 3f);
+                    slot.LocalScale *= 0.003f;
+                });
             }
         };
 
         Log.LogInfo($"Plugin {PluginMetadata.GUID} is partially loaded!");
     }
 
-    [HarmonyPatch(typeof(AssemblyPostProcessor))]
+    [HarmonyPatch]
     private class AssemblyPostProcessorPatch
     {
         private static MethodBase TargetMethod() => AccessTools.Method(typeof(AssemblyPostProcessor), "Process", new[] { typeof(string), typeof(string).MakeByRefType(), typeof(string) });
@@ -56,9 +75,7 @@ public class Plugin : BasePlugin
         // It's a non issue exception though, it just causes the engine to explode since it isn't caught in FrooxEngine.Weaver.
         private static Exception Finalizer(Exception __exception)
         {
-            if (__exception is IOException ioEx &&
-                ioEx.Message.Contains("ResoniteModLoader.dll") &&
-                ioEx.Message.Contains("being used by another process"))
+            if (__exception is IOException ioEx && ioEx.Message.Contains("ResoniteModLoader.dll") && ioEx.Message.Contains("being used by another process"))
             {
                 Log.LogError("Suppressed IOException: " + ioEx.Message);
                 return null;
@@ -72,84 +89,117 @@ public class Plugin : BasePlugin
     {
         await Task.CompletedTask;
 
-        DataFeedGroup plguinsGroup = new DataFeedGroup();
-        plguinsGroup.InitBase("RMLSettingsGroup", path, null, "Settings.RML.Mods".AsLocaleKey());
-        yield return plguinsGroup;
+        DataFeedResettableGroup modsGroup = new DataFeedResettableGroup();
+        modsGroup.InitBase("RMLSettingsGroup", path, null, "Settings.RML.Mods".AsLocaleKey());
+        modsGroup.InitSlotName();
+        modsGroup.InitResetAction(x =>
+        {
+            BooleanValueDriver<string> bvd = x.Slot.GetComponentInChildren<Text>().Slot.GetComponent<BooleanValueDriver<string>>();
+            bvd.FalseValue.Value = "Settings.RML.SaveAll";
+
+            if (bvd.Slot.Parent.Parent.GetComponentInChildren<Image>() is not { } img) return;
+            SpriteProvider spr = img.Slot.AttachComponent<SpriteProvider>();
+            spr.Texture.Target = img.Slot.AttachTexture(new Uri("resdb:///2f5cc6b6d4249bfdceda48fcd3df6375d47d13614e2100a8ed5a0f511ea9c01e.webp"), wrapMode: TextureWrapMode.Clamp);
+            img.Sprite.Target = spr;
+
+            if (x.Slot.GetComponent<Button>() is not { } btn) return;
+            btn.LocalPressed += (_, _) =>
+            {
+                Slot resetBtn = btn.Slot.FindParent(x2 => x2.Name == "Reset Button");
+                DataModelValueFieldStore<bool>.Store store = resetBtn?.GetComponentInChildren<DataModelValueFieldStore<bool>.Store>();
+                if (store == null) return;
+
+                if (!store.Value.Value || NetChainloader.Instance.Plugins.Count == 0) return;
+
+                Plugin.Log.LogDebug($"Saving All Configs");
+                ModLoader.Mods().Do(x3 => x3?.GetConfiguration()?.Save());
+            };
+        });
+        yield return modsGroup;
 
         DataFeedGrid modsGrid = new DataFeedGrid();
         modsGrid.InitBase("ModsGrid", path, ["RMLSettingsGroup"], "Settings.RML.LoadedMods".AsLocaleKey());
+        modsGroup.InitSlotName();
         yield return modsGrid;
 
         string[] loadedModsGroup = ["RMLSettingsGroup", "ModsGrid"];
 
-        List<ResoniteModBase> mods = new List<ResoniteModBase>(ModLoader.Mods());
-        if (mods.Count > 0)
+        List<(ResoniteModBase Mod, bool IsEmpty)> mods = new List<ResoniteModBase>(ModLoader.Mods()).Select(mod => (Mod: mod, IsEmpty: ConfigHelpers.IsEmpty(mod.GetConfiguration()))).Where(x => !x.IsEmpty || BepisModSettings.Plugin.ShowEmptyPages.Value).OrderBy(x => x.Mod.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+        if (mods.Count == 0)
         {
-            List<ResoniteModBase> sortedMods = new List<ResoniteModBase>(mods);
-            sortedMods.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-
-            List<ResoniteModBase> filteredMods = FilterMods(sortedMods, BepisPluginsPage.SearchString).ToList();
-            if (filteredMods.Count > 0)
-            {
-                foreach (ResoniteModBase mod in filteredMods)
-                {
-                    bool isEmpty = ConfigHelpers.IsEmpty(mod.GetConfiguration());
-
-                    string modName = isEmpty ? $"<color=#a8a8a8>{mod.Name}</color>" : mod.Name;
-                    string modGuid = mod.GetModId();
-
-                    LocaleLoader.AddLocaleString($"Settings.{modGuid}.Breadcrumb", modName, authors: PluginMetadata.AUTHORS);
-
-                    DataFeedCategory loadedPlugin = new DataFeedCategory();
-                    loadedPlugin.InitBase(modGuid, path, loadedModsGroup, modName, $"{modName} ({mod.Version})\nby \"{mod.Author}\"\n\n{modGuid}");
-                    if (isEmpty) loadedPlugin.InitSorting(1);
-                    yield return loadedPlugin;
-                }
-
-                yield break;
-            }
-
-            if (!string.IsNullOrEmpty(BepisPluginsPage.SearchString))
-            {
-                DataFeedLabel noResults = new DataFeedLabel();
-                noResults.InitBase("NoSearchResults", path, loadedModsGroup, "Settings.RML.Mods.NoSearchResults".AsLocaleKey());
-                yield return noResults;
-
-                yield break;
-            }
+            DataFeedLabel noMods = new DataFeedLabel();
+            noMods.InitBase("NoMods", path, loadedModsGroup, "Settings.RML.Mods.NoMods".AsLocaleKey());
+            noMods.InitSlotName();
+            yield return noMods;
+            yield break;
         }
 
-        DataFeedLabel noMods = new DataFeedLabel();
-        noMods.InitBase("NoMods", path, loadedModsGroup, "Settings.RML.Mods.NoMods".AsLocaleKey());
-        yield return noMods;
-    }
-
-    private static IEnumerable<ResoniteModBase> FilterMods(List<ResoniteModBase> mods, string searchString)
-    {
-        searchString = searchString.Trim();
-
-        return mods.Where(mod =>
+        foreach ((ResoniteModBase mod, bool isEmpty) in mods)
         {
-            if (!BepisModSettings.Plugin.ShowEmptyPages.Value)
+            ConfigHelpers.SetupConfigKeyFieldInfo(mod);
+
+            string modName = isEmpty ? $"<color=#a8a8a8>{mod.Name}</color>" : mod.Name;
+            string modGuid = mod.GetModId();
+            string modDesc = $"{modName} ({mod.Version})\nby \"{mod.Author}\"\n\n{modGuid}";
+
+            LocaleLoader.AddLocaleString($"Settings.{modGuid}.Breadcrumb", modName, authors: PluginMetadata.AUTHORS);
+
+            DataFeedCategory loadedPlugin = new DataFeedCategory();
+            loadedPlugin.InitBase(modGuid, path, loadedModsGroup, modName, modDesc);
+            loadedPlugin.InitVisible(x =>
             {
-                if (ConfigHelpers.IsEmpty(mod.GetConfiguration()))
-                    return false;
-            }
+                if (!x.TryFindClosestSlot(out Slot slot)) return;
 
-            if (string.IsNullOrWhiteSpace(searchString))
-                return true;
+                EnsureSpace(slot, DynamicVariableHelper.ProcessName(modGuid));
+                CreateDynField(slot, "Visible", x);
 
-            if (mod.Name.Contains(searchString, StringComparison.InvariantCultureIgnoreCase))
-                return true;
+                CreateValVar(slot, "Name", modName);
+                CreateValVar(slot, "Description", modDesc);
+                CreateValVar(slot, "ID", modGuid);
+                CreateValVar(slot, "Version", mod.Version);
+                CreateValVar(slot, "Author", mod.Author);
+            });
 
-            if (mod.Version.ToString().Contains(searchString, StringComparison.InvariantCultureIgnoreCase))
-                return true;
+            if (BepisModSettings.Plugin.SortEmptyPages.Value && isEmpty) loadedPlugin.InitSorting(1);
+            yield return loadedPlugin;
+        }
 
-            if (mod.Author.Contains(searchString, StringComparison.InvariantCultureIgnoreCase))
-                return true;
+        DataFeedLabel noResults = new DataFeedLabel();
+        noResults.InitBase("NoSearchResultsRML", path, loadedModsGroup, "Settings.RML.Mods.NoSearchResults".AsLocaleKey());
+        noResults.InitVisible(x =>
+        {
+            x.Value = false;
 
-            return false;
+            if (!x.TryFindClosestSlot(out Slot slot)) return;
+
+            EnsureSpace(slot, DynamicVariableHelper.ProcessName(noResults.ItemKey));
+            CreateDynField(slot, "Visible", x);
+
+            CreateValVar(slot, "Name", noResults.ItemKey);
         });
+        noResults.InitSlotName();
+        yield return noResults;
+
+        void EnsureSpace(Slot slot, string spaceName)
+        {
+            DynamicVariableSpace space = slot.GetComponentOrAttach<DynamicVariableSpace>(d => d.SpaceName.Value == spaceName);
+            space.SpaceName.Value = spaceName;
+        }
+
+        void CreateDynField<T>(Slot slot, string name, IField<T> value)
+        {
+            DynamicField<T> dynField = slot.GetComponentOrAttach<DynamicField<T>>(d => d.VariableName.Value == name);
+            dynField.VariableName.Value = name;
+            dynField.TargetField.Target = value;
+        }
+
+        void CreateValVar<T>(Slot slot, string name, T value)
+        {
+            DynamicValueVariable<T> var = slot.GetComponentOrAttach<DynamicValueVariable<T>>(d => d.VariableName.Value == name);
+            var.VariableName.Value = name;
+            var.Value.Value = value;
+        }
     }
 
     private static async IAsyncEnumerable<DataFeedItem> RmlSettingsConfigsEnumerate(IReadOnlyList<string> path)
@@ -257,11 +307,10 @@ public class Plugin : BasePlugin
             added.Add(key);
 
             LocaleString nameKey = isHidden ? $"<color=hero.yellow>{config.Name}</color>" : config.Name;
-            LocaleString descKey = config.Description;
+            LocaleString descKey = $"{config.Description}\n\nDefault: {(config.TryComputeDefault(out object value) ? value : "Null")}";
+            LocaleString descKey2 = config.Description;
             LocaleString defaultKey = $"{config.Name} : {valueType}";
             // LocaleString valueKey = $"{config.Name} : {modConfig.GetValue(config)}";
-
-            if (isHidden) nameKey = nameKey.SetFormat("<color=hero.yellow>{0}</color>");
 
             InternalLocale internalLocale = new InternalLocale(nameKey, descKey);
 
@@ -269,9 +318,13 @@ public class Plugin : BasePlugin
 
             if (valueType == typeof(dummy))
             {
-                DataFeedItem dummyField = new DataFeedValueField<dummy>();
-                dummyField.InitBase(key, path, groupingKeys, internalLocale.Key, internalLocale.Description);
-                yield return dummyField;
+                DataFeedIndicator<string> indi = new DataFeedIndicator<string>();
+                indi.InitBase(key, path, groupingKeys, nameKey, descKey2);
+                indi.InitSetupValue(x =>
+                {
+                    x.Value = descKey2.content.GetFormattedLocaleString();
+                });
+                yield return indi;
             }
             else if (valueType == typeof(bool))
             {
