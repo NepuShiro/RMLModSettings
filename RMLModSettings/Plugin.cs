@@ -341,7 +341,7 @@ public class Plugin : BasePlugin
             added.Add(key);
 
             LocaleString nameKey = isHidden ? $"<color=hero.yellow>{config.Name}</color>" : config.Name;
-            LocaleString descKey = $"{config.Description}\n\nDefault: {(config.TryComputeDefault(out object value) ? value : "Null")}";
+            LocaleString descKey = $"{config.Description}\n\nDefault: {(config.TryComputeDefault(out object value) ? string.IsNullOrEmpty(value?.ToString()) ? "Null" : value?.ToString() : "Null")}";
             LocaleString descKey2 = config.Description;
             LocaleString defaultKey = $"{config.Name} : {valueType}";
             // LocaleString valueKey = $"{config.Name} : {modConfig.GetValue(config)}";
