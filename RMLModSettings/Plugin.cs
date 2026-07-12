@@ -151,14 +151,21 @@ public class Plugin : BasePlugin
             {
                 if (!x.TryFindClosestSlot(out Slot slot)) return;
 
-                EnsureSpace(slot, DynamicVariableHelper.ProcessName(modGuid));
-                CreateDynField(slot, "Visible", x);
+                if (isEmpty && slot.GetComponent<Button>() is { ColorDrivers.Count: 2 } btn)
+                {
+                    var _0 = btn.ColorDrivers[0];
+                    _0.NormalColor.Value = RadiantUI_Constants.Sub.ORANGE;
+                    _0.HighlightColor.Value = RadiantUI_Constants.Dark.ORANGE;
+                }
 
-                CreateValVar(slot, "Name", modName);
-                CreateValVar(slot, "Description", modDesc);
-                CreateValVar(slot, "ID", modGuid);
-                CreateValVar(slot, "Version", mod.Version);
-                CreateValVar(slot, "Author", mod.Author);
+                slot.EnsureSpace(DynamicVariableHelper.ProcessName(modGuid));
+                slot.CreateDynField("Visible", x);
+
+                slot.CreateValVar("Name", modName);
+                slot.CreateValVar("Description", modDesc);
+                slot.CreateValVar("ID", modGuid);
+                slot.CreateValVar("Version", mod.Version);
+                slot.CreateValVar("Author", mod.Author);
             });
 
             if (BepisModSettings.Plugin.SortEmptyPages.Value && isEmpty) loadedPlugin.InitSorting(1);
@@ -173,33 +180,13 @@ public class Plugin : BasePlugin
 
             if (!x.TryFindClosestSlot(out Slot slot)) return;
 
-            EnsureSpace(slot, DynamicVariableHelper.ProcessName(noResults.ItemKey));
-            CreateDynField(slot, "Visible", x);
+            slot.EnsureSpace(DynamicVariableHelper.ProcessName(noResults.ItemKey));
+            slot.CreateDynField("Visible", x);
 
-            CreateValVar(slot, "Name", noResults.ItemKey);
+            slot.CreateValVar("Name", noResults.ItemKey);
         });
         noResults.InitSlotName();
         yield return noResults;
-
-        void EnsureSpace(Slot slot, string spaceName)
-        {
-            DynamicVariableSpace space = slot.GetComponentOrAttach<DynamicVariableSpace>(d => d.SpaceName.Value == spaceName);
-            space.SpaceName.Value = spaceName;
-        }
-
-        void CreateDynField<T>(Slot slot, string name, IField<T> value)
-        {
-            DynamicField<T> dynField = slot.GetComponentOrAttach<DynamicField<T>>(d => d.VariableName.Value == name);
-            dynField.VariableName.Value = name;
-            dynField.TargetField.Target = value;
-        }
-
-        void CreateValVar<T>(Slot slot, string name, T value)
-        {
-            DynamicValueVariable<T> var = slot.GetComponentOrAttach<DynamicValueVariable<T>>(d => d.VariableName.Value == name);
-            var.VariableName.Value = name;
-            var.Value.Value = value;
-        }
     }
 
     private static async IAsyncEnumerable<DataFeedItem> RmlSettingsConfigsEnumerate(IReadOnlyList<string> path)
@@ -291,6 +278,53 @@ public class Plugin : BasePlugin
                 if (!store.Value.Value) return;
                 ResetConfigSection(modId, section);
             };
+
+            if (!BepisModSettings.Plugin.AllowCollapsingConfigs.Value) return;
+            //▶▼
+            //⮞⮟
+            //🞂🞃
+
+            Slot tab = but.Slot.FindParent(x => x.Name == "Reset Button").Parent[0];
+
+            DynamicValueVariable<bool> valField = tab.AttachComponent<DynamicValueVariable<bool>>();
+            valField.VariableName.Value = $"{section}Visible";
+            valField.Value.Value = BepisModSettings.Plugin.DefaultCollapsed.Value;
+
+            Button tabbtn = tab.AttachComponent<Button>(runOnAttachBehavior: false);
+            Text text = tab.GetComponentInChildren<Text>();
+
+            BooleanValueDriver<string> textBvd = tab.AttachComponent<BooleanValueDriver<string>>();
+            if (text.Slot.GetComponent<LocaleStringDriver>() is { } locale)
+            {
+                textBvd.FalseValue.Value = "⮞ {0}";
+                textBvd.TrueValue.Value = "⮟ {0}";
+                textBvd.TargetField.ForceLink(locale.Format);
+            }
+            else
+            {
+                textBvd.FalseValue.Value = $"⮞ {text.Content.Value}";
+                textBvd.TrueValue.Value = $"⮟ {text.Content.Value}";
+                textBvd.TargetField.ForceLink(text.Content);
+            }
+            textBvd.State.DriveFrom(valField.Value);
+
+            tabbtn.LocalPressed += (b, _) => SetActiveState(b.Slot);
+            but.Slot.RunInUpdates(3, () => SetActiveState(tabbtn.Slot));
+
+            return;
+
+            void SetActiveState(Slot slot)
+            {
+                DynamicValueVariable<bool> var = slot.GetComponent<DynamicValueVariable<bool>>(x => x.VariableName.Value == $"{section}Visible");
+
+                bool val = !var.Value.Value;
+                var.Value.Value = val;
+
+                foreach (Slot s in slot.Parent.Parent[1][0].Children)
+                {
+                    s.ActiveSelf = val;
+                }
+            }
         });
         yield return configs;
 
@@ -320,15 +354,15 @@ public class Plugin : BasePlugin
             {
                 DataFeedIndicator<string> indi = new DataFeedIndicator<string>();
                 indi.InitBase(key, path, groupingKeys, nameKey, descKey2);
-                indi.InitSetupValue(x =>
-                {
-                    x.Value = descKey2.content.GetFormattedLocaleString();
-                });
+                indi.InitSetupValue(x => { x.Value = descKey2.content.GetFormattedLocaleString(); });
+                indi.InitVisible(x => x.Value = !BepisModSettings.Plugin.DefaultCollapsed.Value);
                 yield return indi;
             }
             else if (valueType == typeof(bool))
             {
-                yield return ConfigHelpers.GenerateToggle(key, path, groupingKeys, internalLocale, modConfig, config);
+                DataFeedToggle toggle = ConfigHelpers.GenerateToggle(key, path, groupingKeys, internalLocale, modConfig, config);
+                toggle.InitVisible(x => x.Value = !BepisModSettings.Plugin.DefaultCollapsed.Value);
+                yield return toggle;
             }
             else if (valueType.IsEnum)
             {
@@ -356,6 +390,8 @@ public class Plugin : BasePlugin
                     enumItem.InitBase(key, path, groupingKeys, defaultKey, descKey);
                 }
 
+                enumItem.InitVisible(x => x.Value = !BepisModSettings.Plugin.DefaultCollapsed.Value);
+
                 yield return enumItem;
             }
             else if (valueType.IsNullable())
@@ -380,6 +416,7 @@ public class Plugin : BasePlugin
 
                     await foreach (DataFeedItem item in nullableEnumItems)
                     {
+                        item.InitVisible(x => x.Value = !BepisModSettings.Plugin.DefaultCollapsed.Value);
                         yield return item;
                     }
                 }
@@ -398,6 +435,8 @@ public class Plugin : BasePlugin
                     valueItem = new DataFeedValueField<dummy>();
                     valueItem.InitBase(key, path, groupingKeys, defaultKey, descKey);
                 }
+
+                valueItem.InitVisible(x => x.Value = !BepisModSettings.Plugin.DefaultCollapsed.Value);
 
                 yield return valueItem;
             }
