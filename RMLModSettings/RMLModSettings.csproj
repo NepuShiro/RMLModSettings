@@ -29,6 +29,7 @@
         <PackageReference Include="ResoniteModding.BepInExResoniteShim" Version="0.9.*"/>
         <PackageReference Include="ResoniteModding.BepisResoniteWrapper" Version="1.*"/>
         <PackageReference Include="ResoniteModding.BepisLocaleLoader" Version="1.*"/>
+        <PackageReference Include="ResoniteModding.BepisModSettings" Version="1.*"/>
         <PackageReference Include="ResoniteModLoader" Version="5.0.1" />
     </ItemGroup>
 
@@ -57,10 +58,6 @@
         </Reference>
         <Reference Include="Renderite.Shared">
             <HintPath>$(GamePath)Renderite.Shared.dll</HintPath>
-            <Private>False</Private>
-        </Reference>
-        <Reference Include="BepisModSettings">
-            <HintPath>$(GamePath)BepInEx\plugins\ResoniteModding-BepisModSettings\BepisModSettings\BepisModSettings.dll</HintPath>
             <Private>False</Private>
         </Reference>
     </ItemGroup>
