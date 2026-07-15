@@ -18,9 +18,9 @@
     "Settings.RML.Mods.Error": "An Error has occurred",
 
     "Settings.RML.Mods.Actions": "Actions",
-    "Settings.RML.Mods.SaveConfig": "Save all Configs",
+    "Settings.RML.Mods.SaveConfig": "Save Current Configs",
     "Settings.RML.Mods.SaveConfig.Description": "Save the currently selected Mod's Configs",
-    "Settings.RML.Mods.ResetConfig": "Reset all Configs",
+    "Settings.RML.Mods.ResetConfig": "Reset Current Configs",
     "Settings.RML.Mods.ResetConfig.Description": "Reset all categories from the currently selected Mod's Configs",
     "Settings.RML.Mods.ResetConfig.Confirm": "Are you sure?",
 

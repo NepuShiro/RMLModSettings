@@ -42,23 +42,28 @@ public class Plugin : BasePlugin
             else
             {
                 Log.LogFatal("ResoniteModLoader is not loaded! You cannot use this plugin without it.");
-                World w = Userspace.UserspaceWorld;
-                w.RunSynchronously(() =>
+                Task.Run(async () =>
                 {
-                    Slot slot = w.RootSlot.LocalUserSpace.AddSlot("RML Mod Settings Warning", false);
-                    UIBuilder uIBuilder = RadiantUI_Panel.SetupPanel(slot, "RML Mod Settings - <color=Hero.Yellow>Warning</color>", new float2(700f, 350f), pinButton: false);
-                    RadiantUI_Constants.SetupEditorStyle(uIBuilder);
-                    uIBuilder.VerticalLayout(4f);
-                    uIBuilder.Style.MinHeight = 48f;
+                    while (Userspace.UserspaceWorld?.LocalUserSpace == null) await Task.Delay(10);
 
-                    uIBuilder.Text("ResoniteModLoader is <color=Hero.Red>not loaded</color>, or is <color=Hero.Red>not up to date</color>.\nYou cannot use this plugin without it!").Size.Value = 32f;
+                    World w = Userspace.UserspaceWorld;
+                    w.RunSynchronously(() =>
+                    {
+                        Slot slot = w.LocalUserSpace.AddSlot("RML Mod Settings Warning", false);
+                        UIBuilder uIBuilder = RadiantUI_Panel.SetupPanel(slot, "RML Mod Settings - <color=Hero.Yellow>Warning</color>", new float2(700f, 350f), pinButton: false);
+                        RadiantUI_Constants.SetupEditorStyle(uIBuilder);
+                        uIBuilder.VerticalLayout(4f);
+                        uIBuilder.Style.MinHeight = 48f;
 
-                    Hyperlink hl = uIBuilder.Button("Go to Latest RML", RadiantUI_Constants.Sub.GREEN).Slot.AttachComponent<Hyperlink>();
-                    hl.URL.Value = new Uri("https://github.com/resonite-modding-group/ResoniteModLoader/releases/latest");
-                    hl.Reason.Value = "Opening RML Github";
+                        uIBuilder.Text("ResoniteModLoader is <color=Hero.Red>not loaded</color>, or is <color=Hero.Red>not up to date</color>.\nYou cannot use this plugin without it!").Size.Value = 32f;
 
-                    slot.PositionInFrontOfUser(float3.Backward, null, 3f);
-                    slot.LocalScale *= 0.003f;
+                        Hyperlink hl = uIBuilder.Button("Go to Latest RML", RadiantUI_Constants.Sub.GREEN).Slot.AttachComponent<Hyperlink>();
+                        hl.URL.Value = new Uri("https://github.com/resonite-modding-group/ResoniteModLoader/releases/latest");
+                        hl.Reason.Value = "Opening RML Github";
+
+                        slot.PositionInFrontOfUser(float3.Backward, null, 3f);
+                        slot.LocalScale *= 0.003f;
+                    });
                 });
             }
         };
@@ -262,10 +267,12 @@ public class Plugin : BasePlugin
 
         const string section = "Configs";
 
-        DataFeedResettableGroup configs = new DataFeedResettableGroup();
-        configs.InitBase(section, path, null, section);
+        DataFeedResettableGroup configs = DataFeedHelpers.DataFeedCollapseResettableGroup(section, path, null, section);
+        Action<SyncDelegate<Action>> oldAction = configs.ResetAction;
         configs.InitResetAction(a =>
         {
+            oldAction?.Invoke(a);
+
             Button but = a.Slot.GetComponentInChildren<Button>();
             if (but == null) return;
 
@@ -278,53 +285,6 @@ public class Plugin : BasePlugin
                 if (!store.Value.Value) return;
                 ResetConfigSection(modId, section);
             };
-
-            if (!BepisModSettings.Plugin.AllowCollapsingConfigs.Value) return;
-            //▶▼
-            //⮞⮟
-            //🞂🞃
-
-            Slot tab = but.Slot.FindParent(x => x.Name == "Reset Button").Parent[0];
-
-            DynamicValueVariable<bool> valField = tab.AttachComponent<DynamicValueVariable<bool>>();
-            valField.VariableName.Value = $"{section}Visible";
-            valField.Value.Value = BepisModSettings.Plugin.DefaultCollapsed.Value;
-
-            Button tabbtn = tab.AttachComponent<Button>(runOnAttachBehavior: false);
-            Text text = tab.GetComponentInChildren<Text>();
-
-            BooleanValueDriver<string> textBvd = tab.AttachComponent<BooleanValueDriver<string>>();
-            if (text.Slot.GetComponent<LocaleStringDriver>() is { } locale)
-            {
-                textBvd.FalseValue.Value = "⮞ {0}";
-                textBvd.TrueValue.Value = "⮟ {0}";
-                textBvd.TargetField.ForceLink(locale.Format);
-            }
-            else
-            {
-                textBvd.FalseValue.Value = $"⮞ {text.Content.Value}";
-                textBvd.TrueValue.Value = $"⮟ {text.Content.Value}";
-                textBvd.TargetField.ForceLink(text.Content);
-            }
-            textBvd.State.DriveFrom(valField.Value);
-
-            tabbtn.LocalPressed += (b, _) => SetActiveState(b.Slot);
-            but.Slot.RunInUpdates(3, () => SetActiveState(tabbtn.Slot));
-
-            return;
-
-            void SetActiveState(Slot slot)
-            {
-                DynamicValueVariable<bool> var = slot.GetComponent<DynamicValueVariable<bool>>(x => x.VariableName.Value == $"{section}Visible");
-
-                bool val = !var.Value.Value;
-                var.Value.Value = val;
-
-                foreach (Slot s in slot.Parent.Parent[1][0].Children)
-                {
-                    s.ActiveSelf = val;
-                }
-            }
         });
         yield return configs;
 
@@ -339,9 +299,41 @@ public class Plugin : BasePlugin
             string initKey = section + "." + config.Name;
             string key = added.Contains(initKey) ? initKey + added.Count : initKey;
             added.Add(key);
+            
+            string defaultValueText;
+
+            if (config.TryComputeDefault(out object value))
+            {
+                if (value == null)
+                {
+                    defaultValueText = "<i>Null</i>";
+                }
+                else
+                {
+                    string defaultValue = value.ToString();
+
+                    if (string.IsNullOrEmpty(defaultValue))
+                    {
+                        defaultValueText = "<i>Empty String</i>";
+                    }
+                    else if (valueType == typeof(string) || valueType == typeof(Uri))
+                    {
+                        defaultValueText = $"\"{defaultValue}\"";
+                    }
+                    else
+                    {
+                        defaultValueText = defaultValue;
+                    }
+                }
+            }
+            else
+            {
+                defaultValueText = "<i>Couldn't Compute Default</i>";
+            }
+
 
             LocaleString nameKey = isHidden ? $"<color=hero.yellow>{config.Name}</color>" : config.Name;
-            LocaleString descKey = $"{config.Description}\n\nDefault: {(config.TryComputeDefault(out object value) ? string.IsNullOrEmpty(value?.ToString()) ? "Null" : value?.ToString() : "Null")}";
+            LocaleString descKey = $"{config.Description}\n\nDefault: {defaultValueText}";
             LocaleString descKey2 = config.Description;
             LocaleString defaultKey = $"{config.Name} : {valueType}";
             // LocaleString valueKey = $"{config.Name} : {modConfig.GetValue(config)}";
@@ -370,10 +362,11 @@ public class Plugin : BasePlugin
 
                 try
                 {
+                    // TODO: Implement Flags enums for RML Mods, Not sure if any use flags but yeh
                     // if (valueType.GetCustomAttribute<FlagsAttribute>() != null)
                     // {
                     //     LocaleLoader.AddLocaleString($"Settings.{key}.Breadcrumb", initKey, authors: PluginMetadata.AUTHORS);
-                    // 
+                    //
                     //     CategoryHandlers.Add(key, path2 => (IAsyncEnumerable<DataFeedItem>)DataFeedHelpers.HandleFlagsEnumCategory.MakeGenericMethod(valueType).Invoke(null, [path2, config]));
                     //     enumItem = new DataFeedCategory();
                     //     enumItem.InitBase(key, path, groupingKeys, valueKey, descKey);
@@ -437,7 +430,6 @@ public class Plugin : BasePlugin
                 }
 
                 valueItem.InitVisible(x => x.Value = !BepisModSettings.Plugin.DefaultCollapsed.Value);
-
                 yield return valueItem;
             }
         }
